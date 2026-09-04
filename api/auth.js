@@ -3,10 +3,11 @@ import { db, migrate } from './_db.js'
 import { signToken, getUserId } from './_auth.js'
 
 export default async function handler(req, res) {
-  await migrate()
   const action = req.query.action
 
   try {
+    await migrate()
+
     if (action === 'status' && req.method === 'GET') {
       const r = await db().execute('SELECT COUNT(*) as c FROM users')
       return res.status(200).json({ hasUser: Number(r.rows[0].c) > 0 })

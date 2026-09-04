@@ -2,12 +2,12 @@ import { db, migrate } from './_db.js'
 import { requireUser } from './_auth.js'
 
 export default async function handler(req, res) {
-  await migrate()
   const uid = requireUser(req, res)
   if (!uid) return
   const action = req.query.action
 
   try {
+    await migrate()
     if (action === 'summary' && req.method === 'GET') {
       const { from, to } = req.query
       const r = await db().execute({
