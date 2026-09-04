@@ -22,7 +22,7 @@ const isDeviation = computed(() => override.value === 0 || override.value === 1)
   <button
     type="button"
     class="cell"
-    :class="{ 'out-month': !inMonth, today: isToday, working, deviation: isDeviation }"
+    :class="{ 'out-month': !inMonth, today: isToday, working, off: !working, deviation: isDeviation }"
     @click="emit('open', dateStr)"
   >
     <div class="cell-top">
@@ -57,7 +57,20 @@ const isDeviation = computed(() => override.value === 0 || override.value === 1)
 .cell:hover { background: var(--surface-2); border-color: var(--border-strong); }
 .cell.out-month { opacity: 0.32; }
 .cell.today { border-color: var(--text); }
-.cell.working { background: var(--surface-2); }
+
+.cell.working {
+  background: rgba(34, 197, 94, 0.10);
+  border-color: rgba(34, 197, 94, 0.35);
+}
+.cell.working:hover { background: rgba(34, 197, 94, 0.16); border-color: rgba(34, 197, 94, 0.5); }
+.cell.today.working { border-color: rgba(34, 197, 94, 0.8); }
+
+.cell.off {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.28);
+}
+.cell.off:hover { background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.45); }
+.cell.today.off { border-color: rgba(239, 68, 68, 0.8); }
 
 .cell-top {
   display: flex;
@@ -70,11 +83,11 @@ const isDeviation = computed(() => override.value === 0 || override.value === 1)
 
 .status-mark {
   width: 8px; height: 8px;
-  border: 1.5px solid var(--text-dim);
+  border: 1.5px solid rgba(239, 68, 68, 0.65);
   border-radius: 1px;
   flex-shrink: 0;
 }
-.status-mark.filled { background: var(--text); border-color: var(--text); }
+.status-mark.filled { background: rgba(34, 197, 94, 0.85); border-color: rgba(34, 197, 94, 0.85); }
 
 .cell-body {
   display: flex;

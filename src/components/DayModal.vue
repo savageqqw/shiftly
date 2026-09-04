@@ -114,7 +114,7 @@ async function resetDay() {
           </button>
           <button
             type="button"
-            class="seg-btn"
+            class="seg-btn seg-work"
             :class="{ active: overrideChoice === 'work' }"
             @click="overrideChoice = 'work'"
           >
@@ -122,7 +122,7 @@ async function resetDay() {
           </button>
           <button
             type="button"
-            class="seg-btn"
+            class="seg-btn seg-off"
             :class="{ active: overrideChoice === 'off' }"
             @click="overrideChoice = 'off'"
           >
@@ -224,6 +224,8 @@ async function resetDay() {
 .seg-btn:last-child { border-right: none; }
 .seg-btn:hover { background: var(--surface-2); color: var(--text); }
 .seg-btn.active { background: var(--text); color: var(--bg); font-weight: 600; }
+.seg-work.active { background: rgba(34, 197, 94, 0.85); color: #06210f; }
+.seg-off.active { background: rgba(239, 68, 68, 0.85); color: #2a0605; }
 .seg-hint { font-size: 10px; color: inherit; opacity: 0.65; }
 
 .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

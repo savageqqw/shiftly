@@ -68,6 +68,12 @@ const monthSummary = computed(() => {
       </div>
     </header>
 
+    <div class="legend">
+      <span class="legend-item"><span class="legend-dot legend-work" /> робочий</span>
+      <span class="legend-item"><span class="legend-dot legend-off" /> вихідний</span>
+      <span class="legend-item"><span class="legend-mark">⌁</span> заміна графіка</span>
+    </div>
+
     <div class="summary-strip">
       <div class="summary-item">
         <span class="summary-value mono">{{ monthSummary.hours }}</span>
@@ -130,6 +136,19 @@ const monthSummary = computed(() => {
   cursor: pointer;
   text-transform: capitalize;
 }
+
+.legend {
+  display: flex;
+  gap: 18px;
+  margin-bottom: 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-dot { width: 8px; height: 8px; border-radius: 1px; display: inline-block; }
+.legend-work { background: rgba(34, 197, 94, 0.85); }
+.legend-off { border: 1.5px solid rgba(239, 68, 68, 0.65); }
+.legend-mark { color: var(--text-faint); font-size: 11px; }
 
 .summary-strip {
   display: flex;
