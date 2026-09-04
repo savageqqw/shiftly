@@ -1,0 +1,146 @@
+:root {
+  --bg: #0a0a0a;
+  --surface: #121212;
+  --surface-2: #191919;
+  --surface-3: #212121;
+  --border: #262626;
+  --border-strong: #383838;
+  --text: #ededed;
+  --text-dim: #9c9c9c;
+  --text-faint: #5a5a5a;
+  --white: #ffffff;
+  --danger: #d4d4d4;
+
+  --font-ui: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --radius-s: 3px;
+  --radius-m: 4px;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px);
+  background-size: 100% 40px;
+  background-attachment: fixed;
+  background-position: 0 0;
+  background-color: var(--bg);
+}
+
+#app { min-height: 100vh; }
+
+a { color: inherit; }
+
+button {
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+input, select, textarea {
+  font-family: var(--font-mono);
+}
+
+::selection { background: var(--text); color: var(--bg); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--surface-3); border: 2px solid var(--bg); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 16px;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  border-radius: var(--radius-s);
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.btn:hover { border-color: var(--text-dim); background: var(--surface-2); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+  font-weight: 600;
+}
+.btn-primary:hover { background: var(--white); border-color: var(--white); }
+
+.btn-danger { border-color: var(--border-strong); }
+.btn-danger:hover { border-color: var(--text); background: var(--surface-2); }
+
+.btn-ghost {
+  border-color: transparent;
+  padding: 9px 10px;
+}
+.btn-ghost:hover { border-color: var(--border); }
+
+input[type="text"], input[type="password"], input[type="email"],
+input[type="time"], input[type="number"], input[type="date"], select {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  padding: 9px 11px;
+  border-radius: var(--radius-s);
+  font-size: 13.5px;
+  outline: none;
+  transition: border-color 0.15s var(--ease);
+  width: 100%;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--text-dim);
+}
+input::placeholder { color: var(--text-faint); font-family: var(--font-ui); }
+
+label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.field { margin-bottom: 14px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+:focus-visible {
+  outline: 1.5px solid var(--text);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
