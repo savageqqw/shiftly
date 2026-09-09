@@ -1,92 +1,70 @@
-import { defineStore } from 'pinia'
-import { api } from '../lib/api.js'
-import { toISODate } from '../lib/schedule.js'
-import { useToastStore } from './toast.js'
+import { defineStore } from 'pinia';
+import { api } from '../lib/api.js';
+import { useToastStore } from './toast.js';
 
 export const useScheduleStore = defineStore('schedule', {
   state: () => ({
     settings: null,
-    shifts: {}, // date string -> shift row
-    loadedMonths: new Set(), // 'YYYY-M'
-    settingsLoading: false,
-    monthLoading: false
+    overrides: {}, // date -> { date, is_working, note }
+    loaded: false
   }),
   actions: {
-    async loadSettings() {
-      this.settingsLoading = true
-      try {
-        this.settings = await api.getSettings()
-      } catch (e) {
-        useToastStore().error('Не вдалося завантажити налаштування графіка')
-      } finally {
-        this.settingsLoading = false
-      }
+    async load() {
+      const { settings, overrides } = await api.getScheduleState();
+      this.settings = settings;
+      this.overrides = Object.fromEntries(overrides.map((o) => [o.date, o]));
+      this.loaded = true;
     },
 
     async updateSettings(payload) {
-      const prev = this.settings
-      this.settings = { ...this.settings, ...payload }
+      const toast = useToastStore();
+      const prev = this.settings;
+      this.settings = { ...this.settings, ...payload };
       try {
-        this.settings = await api.updateSettings(payload)
-        useToastStore().success('Графік оновлено')
+        const { settings } = await api.updateSettings(payload);
+        this.settings = settings;
+        toast.success('Графік оновлено');
       } catch (e) {
-        this.settings = prev
-        useToastStore().error(e.message || 'Не вдалося оновити графік')
-        throw e
+        this.settings = prev;
+        toast.error(e.message);
+        throw e;
       }
     },
 
-    async loadMonth(year, month) {
-      const key = `${year}-${month}`
-      if (this.loadedMonths.has(key)) return
-      this.monthLoading = true
-      const from = toISODate(new Date(year, month, 1))
-      const to = toISODate(new Date(year, month + 1, 0))
+    async setOverride(date, is_working, note) {
+      const toast = useToastStore();
+      const prev = this.overrides[date];
+      this.overrides = { ...this.overrides, [date]: { date, is_working, note: note || '' } };
       try {
-        const rows = await api.listShifts(from, to)
-        for (const row of rows) {
-          this.shifts[row.date] = row
+        const { override } = await api.setOverride({ date, is_working, note });
+        this.overrides = { ...this.overrides, [date]: override };
+        toast.success('Заміну збережено');
+      } catch (e) {
+        if (prev) this.overrides = { ...this.overrides, [date]: prev };
+        else {
+          const next = { ...this.overrides };
+          delete next[date];
+          this.overrides = next;
         }
-        this.loadedMonths.add(key)
-      } catch (e) {
-        useToastStore().error('Не вдалося завантажити зміни за місяць')
-      } finally {
-        this.monthLoading = false
+        toast.error(e.message);
+        throw e;
       }
     },
 
-    getShift(date) {
-      return this.shifts[date] || null
-    },
-
-    async saveDay(date, payload) {
-      const prev = this.shifts[date]
-      // optimistic merge
-      this.shifts[date] = { ...(prev || { date }), ...payload }
+    async deleteOverride(date) {
+      const toast = useToastStore();
+      const prev = this.overrides[date];
+      const next = { ...this.overrides };
+      delete next[date];
+      this.overrides = next;
       try {
-        const saved = await api.upsertShift({ date, ...payload })
-        this.shifts[date] = saved
-        useToastStore().success('Збережено')
-        return saved
+        await api.deleteOverride(date);
+        toast.success('Заміну скасовано');
       } catch (e) {
-        if (prev) this.shifts[date] = prev
-        else delete this.shifts[date]
-        useToastStore().error(e.message || 'Не вдалося зберегти зміну')
-        throw e
-      }
-    },
-
-    async clearDay(date) {
-      const prev = this.shifts[date]
-      delete this.shifts[date]
-      try {
-        await api.deleteShift(date)
-        useToastStore().success('Скинуто до типового графіка')
-      } catch (e) {
-        if (prev) this.shifts[date] = prev
-        useToastStore().error(e.message || 'Не вдалося скинути день')
-        throw e
+        if (prev) this.overrides = { ...this.overrides, [date]: prev };
+        toast.error(e.message);
+        throw e;
       }
     }
   }
-})
+});

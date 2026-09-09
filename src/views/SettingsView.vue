@@ -1,127 +1,141 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
-import { useScheduleStore } from '../stores/schedule.js'
-import { useAuthStore } from '../stores/auth.js'
+import { ref, watch, onMounted } from 'vue';
+import { useScheduleStore } from '../stores/schedule.js';
 
-const schedule = useScheduleStore()
-const auth = useAuthStore()
+const schedule = useScheduleStore();
 
-const workDays = ref(5)
-const restDays = ref(2)
-const anchorDate = ref('')
-const defaultStart = ref('09:00')
-const defaultEnd = ref('18:00')
-const saving = ref(false)
-
-function syncFromStore() {
-  if (!schedule.settings) return
-  workDays.value = schedule.settings.work_days
-  restDays.value = schedule.settings.rest_days
-  anchorDate.value = schedule.settings.anchor_date
-  defaultStart.value = schedule.settings.shift_default_start
-  defaultEnd.value = schedule.settings.shift_default_end
-}
+const workDays = ref(5);
+const restDays = ref(2);
+const anchorDate = ref('');
+const monthlyGoal = ref(200);
+const tradeinRate = ref(20);
+const novaPoshtaRate = ref(50);
+const saving = ref(false);
 
 onMounted(async () => {
-  if (!schedule.settings) await schedule.loadSettings()
-  syncFromStore()
-})
-watch(() => schedule.settings, syncFromStore)
+  if (!schedule.loaded) await schedule.load();
+  syncFromStore();
+});
 
-const cycleLabel = computed(() => `${workDays.value}/${restDays.value}`)
+function syncFromStore() {
+  if (!schedule.settings) return;
+  workDays.value = schedule.settings.work_days;
+  restDays.value = schedule.settings.rest_days;
+  anchorDate.value = schedule.settings.anchor_date;
+  monthlyGoal.value = schedule.settings.monthly_hours_goal ?? 200;
+  tradeinRate.value = schedule.settings.tradein_rate ?? 20;
+  novaPoshtaRate.value = schedule.settings.nova_poshta_rate ?? 50;
+}
+
+watch(() => schedule.settings, syncFromStore);
 
 async function save() {
-  saving.value = true
+  saving.value = true;
   try {
     await schedule.updateSettings({
       work_days: Number(workDays.value),
       rest_days: Number(restDays.value),
       anchor_date: anchorDate.value,
-      shift_default_start: defaultStart.value,
-      shift_default_end: defaultEnd.value
-    })
-  } catch {
-    // toast handled in store
+      monthly_hours_goal: Number(monthlyGoal.value),
+      tradein_rate: Number(tradeinRate.value),
+      nova_poshta_rate: Number(novaPoshtaRate.value)
+    });
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 </script>
 
 <template>
-  <div class="settings-view">
-    <header class="view-header">
-      <h1 class="view-title">Налаштування</h1>
-      <p class="view-sub">Базовий графік застосовується автоматично; окремі дні можна змінити прямо в календарі</p>
-    </header>
+  <div class="settings-page">
+    <div class="card panel">
+      <p class="panel-title">Базовий цикл</p>
+      <p class="panel-hint">
+        Цикл повторюється безкінечно від опорної дати. Наприклад, 5 робочих і 2 вихідних — це класичний графік
+        5/2. Окремі дні можна замінити вручну прямо в календарі — для підміни напарника чи інших виключень.
+      </p>
 
-    <div class="card settings-card">
-      <h2 class="section-title">Базовий графік</h2>
-      <div class="row-2">
+      <div class="row">
         <div class="field">
           <label for="work">Робочих днів поспіль</label>
-          <input id="work" v-model="workDays" type="number" min="1" max="30" />
+          <input id="work" class="input" type="number" min="1" max="30" v-model="workDays" />
         </div>
         <div class="field">
           <label for="rest">Вихідних днів поспіль</label>
-          <input id="rest" v-model="restDays" type="number" min="0" max="30" />
+          <input id="rest" class="input" type="number" min="1" max="30" v-model="restDays" />
         </div>
       </div>
-      <div class="field">
-        <label for="anchor">Відлік циклу почати з дати</label>
-        <input id="anchor" v-model="anchorDate" type="date" />
-      </div>
-      <p class="hint">
-        Цикл {{ cycleLabel }} — {{ workDays }} робочих, потім {{ restDays }} вихідних, і так по колу від обраної дати.
-        Такий день у календарі можна вручну зробити робочим або вихідним для заміни.
-      </p>
 
-      <h2 class="section-title">Типовий час зміни</h2>
-      <div class="row-2">
-        <div class="field">
-          <label for="ds">З</label>
-          <input id="ds" v-model="defaultStart" type="time" />
-        </div>
-        <div class="field">
-          <label for="de">До</label>
-          <input id="de" v-model="defaultEnd" type="time" />
-        </div>
+      <div class="field" style="margin-top: var(--space-4)">
+        <label for="anchor">Опорна дата (перший робочий день циклу)</label>
+        <input id="anchor" class="input" type="date" v-model="anchorDate" />
       </div>
-      <p class="hint">Ці значення підставляються за замовчуванням при відкритті робочого дня — їх завжди можна змінити вручну.</p>
 
-      <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? 'Збереження…' : 'Зберегти зміни' }}</button>
+      <button class="btn btn-primary" style="margin-top: var(--space-5)" :disabled="saving" @click="save">
+        Зберегти
+      </button>
     </div>
 
-    <div class="card settings-card">
-      <h2 class="section-title">Обліковий запис</h2>
-      <p class="hint mono">{{ auth.user?.email }}</p>
+    <div class="card panel">
+      <p class="panel-title">Ціль по годинах</p>
+      <p class="panel-hint">Скільки годин на місяць — орієнтир для прогрес-бару на головній сторінці.</p>
+      <div class="field">
+        <label for="goal">Годин на місяць</label>
+        <input id="goal" class="input" type="number" min="1" step="1" v-model="monthlyGoal" />
+      </div>
+      <button class="btn btn-primary" style="margin-top: var(--space-4)" :disabled="saving" @click="save">
+        Зберегти
+      </button>
+    </div>
+
+    <div class="card panel">
+      <p class="panel-title">Оцінка товару</p>
+      <p class="panel-hint">Скільки коштує одна заявка кожного типу — використовується для розрахунку суми за зміну.</p>
+      <div class="row">
+        <div class="field">
+          <label for="tradein-rate">Трейд-ін, ₴/шт</label>
+          <input id="tradein-rate" class="input" type="number" min="0" step="0.01" v-model="tradeinRate" />
+        </div>
+        <div class="field">
+          <label for="nova-poshta-rate">Трейд-ін Нова Пошта, ₴/шт</label>
+          <input id="nova-poshta-rate" class="input" type="number" min="0" step="0.01" v-model="novaPoshtaRate" />
+        </div>
+      </div>
+      <button class="btn btn-primary" style="margin-top: var(--space-4)" :disabled="saving" @click="save">
+        Зберегти
+      </button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.view-header { margin-bottom: 24px; }
-.view-title { font-size: 21px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
-.view-sub { font-size: 13px; color: var(--text-dim); margin: 0; max-width: 480px; }
-
-.settings-card {
-  padding: 22px;
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
   max-width: 480px;
-  margin-bottom: 16px;
 }
-.section-title {
-  font-size: 13.5px;
-  font-weight: 600;
-  margin: 0 0 16px;
+.panel {
+  padding: var(--space-5);
 }
-.settings-card .section-title:not(:first-child) { margin-top: 22px; }
+.panel-hint {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 0 0 var(--space-4) 0;
+}
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
 
-.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-
-.hint {
-  font-size: 12px;
-  color: var(--text-faint);
-  line-height: 1.6;
-  margin: 0 0 18px;
+@media (max-width: 420px) {
+  .row {
+    grid-template-columns: 1fr;
+  }
+  .panel {
+    padding: var(--space-4);
+  }
 }
 </style>

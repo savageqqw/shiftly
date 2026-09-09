@@ -1,28 +1,27 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '../stores/auth.js'
+import { createRouter, createWebHistory } from 'vue-router';
+import { useAuthStore } from '../stores/auth.js';
 
 const routes = [
+  { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
   { path: '/', name: 'calendar', component: () => import('../views/CalendarView.vue') },
   { path: '/stats', name: 'stats', component: () => import('../views/StatsView.vue') },
-  { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
-  { path: '/auth', name: 'auth', component: () => import('../views/AuthView.vue') }
-]
+  { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') }
+];
 
 const router = createRouter({
   history: createWebHistory(),
   routes
-})
+});
 
 router.beforeEach((to) => {
-  const auth = useAuthStore()
-  if (!auth.ready) return true // guarded again after bootstrap in App.vue
-  if (to.name !== 'auth' && !auth.isAuthed) {
-    return { name: 'auth' }
+  const auth = useAuthStore();
+  if (!to.meta.public && !auth.isAuthed) {
+    return { name: 'login', query: { redirect: to.fullPath } };
   }
-  if (to.name === 'auth' && auth.isAuthed) {
-    return { name: 'calendar' }
+  if (to.name === 'login' && auth.isAuthed) {
+    return { name: 'calendar' };
   }
-  return true
-})
+  return true;
+});
 
-export default router
+export default router;

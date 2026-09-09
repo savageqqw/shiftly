@@ -1,47 +1,22 @@
-import { defineStore } from 'pinia'
-import { api, getToken, setToken } from '../lib/api.js'
+import { defineStore } from 'pinia';
+import { api } from '../lib/api.js';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
-    user: null,
-    hasUser: null, // whether any account exists on the server at all
-    ready: false
+    token: localStorage.getItem('shiftly_token') || null
   }),
   getters: {
-    isAuthed: (s) => !!s.user
+    isAuthed: (state) => !!state.token
   },
   actions: {
-    async bootstrap() {
-      try {
-        const status = await api.authStatus()
-        this.hasUser = status.hasUser
-      } catch {
-        this.hasUser = null
-      }
-      if (getToken()) {
-        try {
-          this.user = await api.me()
-        } catch {
-          setToken(null)
-          this.user = null
-        }
-      }
-      this.ready = true
-    },
-    async setup(email, password) {
-      const { token } = await api.setup(email, password)
-      setToken(token)
-      this.user = await api.me()
-      this.hasUser = true
-    },
-    async login(email, password) {
-      const { token } = await api.login(email, password)
-      setToken(token)
-      this.user = await api.me()
+    async login(password) {
+      const { token } = await api.login(password);
+      this.token = token;
+      localStorage.setItem('shiftly_token', token);
     },
     logout() {
-      setToken(null)
-      this.user = null
+      this.token = null;
+      localStorage.removeItem('shiftly_token');
     }
   }
-})
+});

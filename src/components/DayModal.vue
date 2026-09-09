@@ -1,261 +1,442 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
-import { useScheduleStore } from '../stores/schedule.js'
-import { parseISODate, isPatternWorkDay, WEEKDAYS_UK, MONTHS_UK } from '../lib/schedule.js'
+import { ref, computed, watch } from 'vue';
+import { useScheduleStore } from '../stores/schedule.js';
+import { useShiftsStore } from '../stores/shifts.js';
+import { baseDayType, effectiveDayType } from '../lib/scheduleEngine.js';
 
 const props = defineProps({
   date: { type: String, required: true }
-})
-const emit = defineEmits(['close'])
+});
+const emit = defineEmits(['close']);
 
-const schedule = useScheduleStore()
+const schedule = useScheduleStore();
+const shifts = useShiftsStore();
 
-const existing = computed(() => schedule.getShift(props.date))
-const patternIsWork = computed(() => isPatternWorkDay(props.date, schedule.settings))
+const override = computed(() => schedule.overrides[props.date] || null);
+const base = computed(() => baseDayType(props.date, schedule.settings));
+const effectiveType = computed(() => effectiveDayType(props.date, schedule.settings, schedule.overrides).type);
+const isUnset = computed(() => effectiveType.value === 'unset');
+const shift = computed(() => shifts.byDate[props.date] || null);
+const isLogged = computed(() => !!(shift.value && shift.value.start_time && shift.value.end_time));
+// Same rule as the calendar grid: a scheduled work day only reads as
+// "confirmed" once hours are actually logged for it.
+const displayStatus = computed(() => {
+  if (effectiveType.value !== 'work') return effectiveType.value;
+  return isLogged.value ? 'work' : 'pending';
+});
 
-const overrideChoice = ref('auto') // 'auto' | 'work' | 'off'
-const startTime = ref('')
-const endTime = ref('')
-const tradeIn = ref('')
-const note = ref('')
-const saving = ref(false)
+const overrideNote = ref(override.value?.note || '');
+const startTime = ref(shift.value?.start_time || '');
+const endTime = ref(shift.value?.end_time || '');
+const tradein = ref(shift.value?.tradein_count ?? 0);
+const novaPoshta = ref(shift.value?.nova_poshta_count ?? 0);
+const shiftNote = ref(shift.value?.note || '');
+const saving = ref(false);
 
-function resetFromExisting() {
-  const row = existing.value
-  if (row && row.override === 1) overrideChoice.value = 'work'
-  else if (row && row.override === 0) overrideChoice.value = 'off'
-  else overrideChoice.value = 'auto'
+const tradeinRate = computed(() => schedule.settings?.tradein_rate ?? 20);
+const novaPoshtaRate = computed(() => schedule.settings?.nova_poshta_rate ?? 50);
+const tradeinValue = computed(() => (Number(tradein.value) || 0) * tradeinRate.value);
+const novaPoshtaValue = computed(() => (Number(novaPoshta.value) || 0) * novaPoshtaRate.value);
+const totalValue = computed(() => Math.round((tradeinValue.value + novaPoshtaValue.value) * 100) / 100);
 
-  startTime.value = row?.start_time || schedule.settings?.shift_default_start || '09:00'
-  endTime.value = row?.end_time || schedule.settings?.shift_default_end || '18:00'
-  tradeIn.value = row?.trade_in_count ?? ''
-  note.value = row?.note || ''
+const prettyDate = computed(() => {
+  const d = new Date(props.date + 'T00:00:00');
+  return d.toLocaleDateString('uk-UA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+});
+
+function toggleOverride() {
+  const nextWorking = effectiveType.value !== 'work';
+  if (nextWorking === (base.value === 'work') && overrideNote.value === '') {
+    // toggling back to the base pattern with no note — just clear override if one exists
+    if (override.value) schedule.deleteOverride(props.date);
+    return;
+  }
+  schedule.setOverride(props.date, nextWorking, overrideNote.value);
 }
-watch(() => props.date, resetFromExisting, { immediate: true })
 
-const effectiveWorking = computed(() => {
-  if (overrideChoice.value === 'work') return true
-  if (overrideChoice.value === 'off') return false
-  return patternIsWork.value
-})
+function clearOverride() {
+  schedule.deleteOverride(props.date);
+  overrideNote.value = '';
+}
+
+async function saveShift() {
+  saving.value = true;
+  try {
+    await shifts.save(props.date, {
+      start_time: startTime.value || null,
+      end_time: endTime.value || null,
+      tradein_count: Number(tradein.value) || 0,
+      nova_poshta_count: Number(novaPoshta.value) || 0,
+      note: shiftNote.value || null
+    });
+  } finally {
+    saving.value = false;
+  }
+}
+
+let autosaveTimer = null;
+function autosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(saveShift, 400);
+}
+
+function bump(field, delta) {
+  if (field === 'tradein') {
+    tradein.value = Math.max(0, (Number(tradein.value) || 0) + delta);
+  } else {
+    novaPoshta.value = Math.max(0, (Number(novaPoshta.value) || 0) + delta);
+  }
+  autosave();
+}
+
+function closeModal() {
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    saveShift();
+  }
+  emit('close');
+}
+
+async function deleteShift() {
+  await shifts.remove(props.date);
+  startTime.value = '';
+  endTime.value = '';
+  tradein.value = 0;
+  novaPoshta.value = 0;
+  shiftNote.value = '';
+}
 
 const computedHours = computed(() => {
-  if (!effectiveWorking.value || !startTime.value || !endTime.value) return null
-  const [sh, sm] = startTime.value.split(':').map(Number)
-  const [eh, em] = endTime.value.split(':').map(Number)
-  let mins = (eh * 60 + em) - (sh * 60 + sm)
-  if (mins <= 0) mins += 24 * 60
-  return Math.round((mins / 60) * 100) / 100
-})
+  if (!startTime.value || !endTime.value) return null;
+  const [sh, sm] = startTime.value.split(':').map(Number);
+  const [eh, em] = endTime.value.split(':').map(Number);
+  let minutes = eh * 60 + em - (sh * 60 + sm);
+  if (minutes <= 0) minutes += 24 * 60;
+  return Math.round((minutes / 60) * 100) / 100;
+});
 
-const dateObj = computed(() => parseISODate(props.date))
-const dateLabel = computed(() => {
-  const d = dateObj.value
-  const weekday = WEEKDAYS_UK[(d.getDay() + 6) % 7]
-  return `${weekday}, ${d.getDate()} ${MONTHS_UK[d.getMonth()].toLowerCase()} ${d.getFullYear()}`
-})
-
-const isDeviation = computed(() => overrideChoice.value !== 'auto')
-
-async function save() {
-  saving.value = true
-  try {
-    const override = overrideChoice.value === 'work' ? 1 : overrideChoice.value === 'off' ? 0 : null
-    await schedule.saveDay(props.date, {
-      override,
-      start_time: effectiveWorking.value ? startTime.value : null,
-      end_time: effectiveWorking.value ? endTime.value : null,
-      trade_in_count: effectiveWorking.value && tradeIn.value !== '' ? Number(tradeIn.value) : null,
-      note: note.value || null
-    })
-    emit('close')
-  } catch {
-    // toast already shown by store
-  } finally {
-    saving.value = false
+watch(
+  () => props.date,
+  () => {
+    overrideNote.value = override.value?.note || '';
+    startTime.value = shift.value?.start_time || '';
+    endTime.value = shift.value?.end_time || '';
+    tradein.value = shift.value?.tradein_count ?? 0;
+    novaPoshta.value = shift.value?.nova_poshta_count ?? 0;
+    shiftNote.value = shift.value?.note || '';
   }
-}
-
-async function resetDay() {
-  saving.value = true
-  try {
-    await schedule.clearDay(props.date)
-    emit('close')
-  } catch {
-    // toast already shown
-  } finally {
-    saving.value = false
-  }
-}
+);
 </script>
 
 <template>
-  <div class="overlay" @click.self="emit('close')">
-    <div class="modal card" role="dialog" aria-modal="true">
+  <div class="overlay" @click.self="closeModal">
+    <div class="modal card">
       <div class="modal-head">
         <div>
-          <div class="modal-date">{{ dateLabel }}</div>
-          <div class="modal-tag mono" v-if="isDeviation">заміна графіка</div>
-        </div>
-        <button class="btn btn-ghost" @click="emit('close')" aria-label="Закрити">✕</button>
-      </div>
-
-      <div class="field">
-        <label>Статус дня</label>
-        <div class="segmented">
-          <button
-            type="button"
-            class="seg-btn"
-            :class="{ active: overrideChoice === 'auto' }"
-            @click="overrideChoice = 'auto'"
-          >
-            За графіком
-            <span class="seg-hint">{{ patternIsWork ? 'робочий' : 'вихідний' }}</span>
-          </button>
-          <button
-            type="button"
-            class="seg-btn seg-work"
-            :class="{ active: overrideChoice === 'work' }"
-            @click="overrideChoice = 'work'"
-          >
-            Робочий
-          </button>
-          <button
-            type="button"
-            class="seg-btn seg-off"
-            :class="{ active: overrideChoice === 'off' }"
-            @click="overrideChoice = 'off'"
-          >
-            Вихідний
-          </button>
-        </div>
-      </div>
-
-      <template v-if="effectiveWorking">
-        <div class="row-2">
-          <div class="field">
-            <label for="start">З</label>
-            <input id="start" v-model="startTime" type="time" />
-          </div>
-          <div class="field">
-            <label for="end">До</label>
-            <input id="end" v-model="endTime" type="time" />
+          <div class="modal-date">{{ prettyDate }}</div>
+          <div class="modal-type" :class="displayStatus">
+            {{
+              effectiveType === 'work'
+                ? (isLogged ? 'Робочий день · відпрацьовано' : 'Робочий день · очікує годин')
+                : effectiveType === 'rest'
+                ? 'Вихідний'
+                : 'Графік не встановлено'
+            }}
+            <span v-if="override" class="override-tag">заміна</span>
           </div>
         </div>
-        <div class="hours-readout mono" v-if="computedHours !== null">
-          Разом: {{ computedHours }} год
-        </div>
-
-        <div class="field">
-          <label for="tradein">Товару на трейд-ін (шт.)</label>
-          <input id="tradein" v-model="tradeIn" type="number" min="0" step="1" placeholder="0" />
-        </div>
-      </template>
-
-      <div class="field">
-        <label for="note">Примітка</label>
-        <textarea id="note" v-model="note" rows="2" placeholder="необов'язково"></textarea>
+        <button class="btn btn-ghost btn-sm" @click="closeModal">Закрити</button>
       </div>
 
-      <div class="modal-actions">
-        <button v-if="existing" class="btn btn-danger" :disabled="saving" @click="resetDay">Скинути день</button>
-        <div class="spacer" />
-        <button class="btn btn-ghost" @click="emit('close')">Скасувати</button>
-        <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? 'Збереження…' : 'Зберегти' }}</button>
-      </div>
+      <section class="modal-section">
+        <p class="panel-title">Заміна з напарником</p>
+        <div class="swap-row">
+          <button class="btn btn-sm" @click="toggleOverride">
+            {{ effectiveType === 'work' ? 'Позначити вихідним' : 'Позначити робочим' }}
+          </button>
+          <button v-if="override" class="btn btn-ghost btn-sm" @click="clearOverride">Скинути до базового</button>
+        </div>
+        <div class="field" style="margin-top: var(--space-3)">
+          <label for="override-note">Коментар (напр. «підміняю Ігоря»)</label>
+          <input id="override-note" class="input" v-model="overrideNote" placeholder="необов'язково" />
+        </div>
+      </section>
+
+      <section class="modal-section" v-if="effectiveType === 'work'">
+        <p class="panel-title">Облік години</p>
+        <div class="time-row">
+          <div class="field">
+            <label for="start">Початок</label>
+            <input id="start" class="input" type="time" v-model="startTime" />
+          </div>
+          <div class="field">
+            <label for="end">Кінець</label>
+            <input id="end" class="input" type="time" v-model="endTime" />
+          </div>
+          <div class="field">
+            <label>Разом</label>
+            <div class="hours-readout">{{ computedHours !== null ? computedHours + ' год' : '—' }}</div>
+          </div>
+        </div>
+
+        <div class="tradein-row">
+          <div class="field">
+            <label for="tradein">Трейд-ін <span class="rate-hint">({{ tradeinRate }}₴/шт)</span></label>
+            <div class="counter">
+              <button type="button" class="counter-btn" @click="bump('tradein', -1)" aria-label="Мінус один">−</button>
+              <input
+                id="tradein"
+                class="input counter-input"
+                type="number"
+                min="0"
+                inputmode="numeric"
+                v-model="tradein"
+                @change="autosave"
+              />
+              <button type="button" class="counter-btn counter-btn-plus" @click="bump('tradein', 1)" aria-label="Плюс один">
+                +
+              </button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="nova-poshta">Трейд-ін Нова Пошта <span class="rate-hint">({{ novaPoshtaRate }}₴/шт)</span></label>
+            <div class="counter">
+              <button type="button" class="counter-btn" @click="bump('novaPoshta', -1)" aria-label="Мінус один">−</button>
+              <input
+                id="nova-poshta"
+                class="input counter-input"
+                type="number"
+                min="0"
+                inputmode="numeric"
+                v-model="novaPoshta"
+                @change="autosave"
+              />
+              <button
+                type="button"
+                class="counter-btn counter-btn-plus"
+                @click="bump('novaPoshta', 1)"
+                aria-label="Плюс один"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="value-readout" v-if="tradein > 0 || novaPoshta > 0">
+          Разом за товар: <strong>{{ totalValue }}₴</strong>
+          <span v-if="saving" class="autosave-hint">· зберігаю…</span>
+        </div>
+
+        <div class="field" style="margin-top: var(--space-3)">
+          <label for="shift-note">Нотатка</label>
+          <input id="shift-note" class="input" v-model="shiftNote" placeholder="необов'язково" />
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-primary" :disabled="saving" @click="saveShift">Зберегти зміну</button>
+          <button v-if="shift" class="btn btn-danger" @click="deleteShift">Видалити запис</button>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
 .overlay {
-  position: fixed; inset: 0;
+  position: fixed;
+  inset: 0;
   background: rgba(0, 0, 0, 0.6);
-  display: flex; align-items: center; justify-content: center;
-  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: 100;
-  animation: fade-in 0.15s var(--ease);
+  padding: var(--space-4);
 }
-@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-
 .modal {
-  width: 100%; max-width: 420px;
-  padding: 24px;
-  max-height: 90vh;
+  width: 100%;
+  max-width: 420px;
+  padding: var(--space-5);
+  max-height: 88vh;
   overflow-y: auto;
 }
-
 .modal-head {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  margin-bottom: 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: var(--space-4);
 }
-.modal-date { font-size: 15.5px; font-weight: 600; }
-.modal-tag {
-  font-size: 10.5px;
-  color: var(--text-faint);
+.modal-date {
+  font-size: 15px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.modal-type {
+  font-size: 12px;
+  color: var(--ink-2);
   margin-top: 4px;
-  border: 1px solid var(--border);
-  display: inline-block;
-  padding: 2px 6px;
-  border-radius: var(--radius-s);
-}
-
-.segmented {
   display: flex;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-s);
-  overflow: hidden;
-}
-.seg-btn {
-  flex: 1;
-  background: var(--surface);
-  border: none;
-  border-right: 1px solid var(--border-strong);
-  color: var(--text-dim);
-  padding: 10px 6px;
-  font-size: 12.5px;
-  font-family: var(--font-ui);
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+  gap: 6px;
 }
-.seg-btn:last-child { border-right: none; }
-.seg-btn:hover { background: var(--surface-2); color: var(--text); }
-.seg-btn.active { background: var(--text); color: var(--bg); font-weight: 600; }
-.seg-work.active { background: rgba(34, 197, 94, 0.85); color: #06210f; }
-.seg-off.active { background: rgba(239, 68, 68, 0.85); color: #2a0605; }
-.seg-hint { font-size: 10px; color: inherit; opacity: 0.65; }
-
-.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-
+.modal-type.work {
+  color: var(--state-work-text);
+}
+.modal-type.rest {
+  color: var(--state-rest-text);
+}
+.modal-type.pending,
+.modal-type.unset {
+  color: var(--ink-2);
+}
+.override-tag {
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-size: 10px;
+  color: var(--ink-1);
+}
+.modal-section {
+  margin-bottom: var(--space-5);
+}
+.swap-row {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.time-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-3);
+  align-items: end;
+}
 .hours-readout {
-  font-size: 12.5px;
-  color: var(--text-dim);
-  margin: -6px 0 14px;
-}
-
-textarea {
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  color: var(--text);
+  font-family: var(--font-num);
+  font-size: 14px;
+  font-weight: 600;
   padding: 9px 11px;
-  border-radius: var(--radius-s);
-  font-size: 13px;
-  width: 100%;
-  resize: vertical;
-  font-family: var(--font-ui);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
 }
-textarea:focus { outline: none; border-color: var(--text-dim); }
-
+.tradein-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.rate-hint {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+.value-readout {
+  margin-top: var(--space-2);
+  font-size: 13px;
+  color: var(--ink-1);
+}
+.value-readout strong {
+  font-family: var(--font-num);
+  color: var(--state-work-text);
+}
+.autosave-hint {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.counter {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.counter-btn {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-2);
+  color: var(--ink-0);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease), transform 0.08s var(--ease);
+}
+.counter-btn:active {
+  transform: scale(0.94);
+}
+.counter-btn:hover {
+  background: var(--bg-3);
+  border-color: var(--ink-2);
+}
+.counter-btn-plus {
+  background: var(--state-work-bg);
+  border-color: var(--state-work-border);
+  color: var(--state-work-text);
+}
+.counter-btn-plus:hover {
+  background: var(--state-work-border);
+  color: var(--bg-0);
+}
+.counter-input {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  padding: 9px 4px;
+}
+/* Hide native number spinners — the +/- buttons replace them */
+.counter-input::-webkit-outer-spin-button,
+.counter-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.counter-input[type='number'] {
+  -moz-appearance: textfield;
+}
 .modal-actions {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+  gap: var(--space-2);
+  margin-top: var(--space-4);
 }
-.spacer { flex: 1; }
+
+@media (max-width: 480px) {
+  .overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .modal {
+    max-width: 100%;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    max-height: 92vh;
+    padding: var(--space-4);
+  }
+  .time-row {
+    grid-template-columns: 1fr 1fr;
+    row-gap: var(--space-3);
+  }
+  .time-row .field:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+  .hours-readout {
+    width: 100%;
+    text-align: center;
+  }
+  .swap-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tradein-row {
+    grid-template-columns: 1fr;
+  }
+  .modal-actions {
+    flex-direction: column;
+  }
+}
 </style>

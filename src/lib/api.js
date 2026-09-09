@@ -1,52 +1,53 @@
-const TOKEN_KEY = 'shiftly_token'
-
-export function getToken() {
-  return localStorage.getItem(TOKEN_KEY)
-}
-export function setToken(t) {
-  if (t) localStorage.setItem(TOKEN_KEY, t)
-  else localStorage.removeItem(TOKEN_KEY)
+function getToken() {
+  return localStorage.getItem('shiftly_token');
 }
 
-async function request(path, { method = 'GET', body, query } = {}) {
-  let url = `/api/${path}`
-  if (query) {
-    const qs = new URLSearchParams(query).toString()
-    url += `?${url.includes('?') ? '&' : ''}${qs}`.replace('&?', '&')
+async function request(path, { method = 'GET', body, params } = {}) {
+  const url = new URL(path, window.location.origin);
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) url.searchParams.set(k, v);
+    });
   }
-  const headers = { 'Content-Type': 'application/json' }
-  const token = getToken()
-  if (token) headers.Authorization = `Bearer ${token}`
 
-  const res = await fetch(url, {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(url.pathname + url.search, {
     method,
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined
-  })
+    body: body ? JSON.stringify(body) : undefined
+  });
 
-  let data = null
-  try { data = await res.json() } catch { /* no body */ }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    /* no body */
+  }
 
   if (!res.ok) {
-    const err = new Error(data?.error || 'Щось пішло не так')
-    err.status = res.status
-    throw err
+    const err = new Error((data && data.error) || 'Помилка запиту');
+    err.status = res.status;
+    throw err;
   }
-  return data
+  return data;
 }
 
 export const api = {
-  authStatus: () => request('auth', { query: { action: 'status' } }),
-  setup: (email, password) => request('auth', { method: 'POST', query: { action: 'setup' }, body: { email, password } }),
-  login: (email, password) => request('auth', { method: 'POST', query: { action: 'login' }, body: { email, password } }),
-  me: () => request('auth', { query: { action: 'me' } }),
+  login: (password) => request('/api/auth', { method: 'POST', body: { password } }),
 
-  getSettings: () => request('settings', { query: { action: 'get' } }),
-  updateSettings: (payload) => request('settings', { method: 'POST', query: { action: 'update' }, body: payload }),
+  getScheduleState: () => request('/api/schedule', { params: { action: 'state' } }),
+  updateSettings: (payload) =>
+    request('/api/schedule', { method: 'POST', params: { action: 'update-settings' }, body: payload }),
+  setOverride: (payload) =>
+    request('/api/schedule', { method: 'POST', params: { action: 'set-override' }, body: payload }),
+  deleteOverride: (date) =>
+    request('/api/schedule', { method: 'POST', params: { action: 'delete-override' }, body: { date } }),
 
-  listShifts: (from, to) => request('shifts', { query: { action: 'list', from, to } }),
-  upsertShift: (payload) => request('shifts', { method: 'POST', query: { action: 'upsert' }, body: payload }),
-  deleteShift: (date) => request('shifts', { method: 'POST', query: { action: 'delete' }, body: { date } }),
-
-  summary: (from, to) => request('stats', { query: { action: 'summary', from, to } })
-}
+  listShifts: (from, to) => request('/api/shifts', { params: { action: 'list', from, to } }),
+  getStats: (from, to) => request('/api/shifts', { params: { action: 'stats', from, to } }),
+  upsertShift: (payload) => request('/api/shifts', { method: 'POST', params: { action: 'upsert' }, body: payload }),
+  deleteShift: (date) => request('/api/shifts', { method: 'POST', params: { action: 'delete' }, body: { date } })
+};
